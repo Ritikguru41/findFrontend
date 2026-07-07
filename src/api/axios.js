@@ -1,39 +1,92 @@
-import axios from 'axios';
-import toast from 'react-hot-toast';
+import axios from "axios";
+import toast from "react-hot-toast";
+
+// Read API URL from Vite environment
+const API_URL =
+  import.meta.env.VITE_API_URL || "http://localhost:5001/api";
+
+console.log("✅ API URL:", API_URL);
 
 const api = axios.create({
-  // Uses VITE_API_URL from .env (local) or Vercel env vars (production)
-  baseURL: import.meta.env.VITE_API_URL || 'http://localhost:5001/api',
-  timeout: 20000, // 20s timeout (Render free tier can be slow on cold starts)
+  baseURL: API_URL,
+  timeout: 30000,
+  headers: {
+    "Content-Type": "application/json",
+  },
 });
 
-// ── Request interceptor — attach JWT token ─────────────────────────────────
+// =========================
+// Request Interceptor
+// =========================
 api.interceptors.request.use(
-  config => {
-    const token = localStorage.getItem('findseat_token');
-    if (token) config.headers.Authorization = `Bearer ${token}`;
+  (config) => {
+    const token = localStorage.getItem("findseat_token");
+
+    if (token) {
+      config.headers.Authorization = `Bearer ${token}`;
+    }
+
     return config;
   },
-  error => Promise.reject(error)
+  (error) => Promise.reject(error)
 );
 
-// ── Response interceptor — handle global errors ────────────────────────────
+// =========================
+// Response Interceptor
+// =========================
 api.interceptors.response.use(
-  res => res,
-  err => {
-    if (err.response?.status === 401) {
-      // Token expired or invalid — clear session and redirect
-      localStorage.removeItem('findseat_token');
-      localStorage.removeItem('findseat_user');
-      toast.error('Session expired. Please log in again.');
-      // Small delay so toast is visible before redirect
-      setTimeout(() => { window.location.href = '/login'; }, 1000);
-    } else if (err.code === 'ECONNABORTED') {
-      toast.error('Request timed out. The server may be starting up, please try again.');
-    } else if (!err.response) {
-      toast.error('Cannot connect to server. Please check your internet connection.');
+  (response) => response,
+
+  (error) => {
+    console.error("API Error:", error);
+
+    if (error.code === "ECONNABORTED") {
+      toast.error("Server timeout. Please try again.");
     }
-    return Promise.reject(err);
+
+    if (!error.response) {
+      toast.error("Cannot connect to the server.");
+      return Promise.reject(error);
+    }
+
+    switch (error.response.status) {
+      case 400:
+        toast.error(error.response.data?.message || "Bad Request");
+        break;
+
+      case 401:
+        localStorage.removeItem("findseat_token");
+        localStorage.removeItem("findseat_user");
+
+        toast.error("Session expired. Please login again.");
+
+        setTimeout(() => {
+          window.location.href = "/login";
+        }, 1000);
+
+        break;
+
+      case 403:
+        toast.error("Access Denied");
+        break;
+
+      case 404:
+        toast.error("API Not Found");
+        break;
+
+      case 429:
+        toast.error("Too many requests. Please wait.");
+        break;
+
+      case 500:
+        toast.error("Internal Server Error");
+        break;
+
+      default:
+        toast.error(error.response.data?.message || "Something went wrong");
+    }
+
+    return Promise.reject(error);
   }
 );
 
